@@ -6,6 +6,7 @@ import {
   type DeepgramConnection,
   deepgramClient,
 } from "../src/index";
+import translateText from "../service/translate";
 // import { Translate } from '@google-cloud/translate';
 import fs from "fs";
 
@@ -16,7 +17,7 @@ export const getAudio = async (text:string,socket:Socket,room:string) => {
     {
       model: "aura-2-thalia-en",
       encoding: "linear16",
-      container: "wav",
+      sample_rate: 16000,
     }
   );
   // STEP 3: Get the audio stream and headers from the response
@@ -49,6 +50,7 @@ const getAudioBuffer = async (response: ReadableStream<Uint8Array>) => {
     (acc, chunk) => Uint8Array.from([...acc, ...chunk]),
     new Uint8Array(0)
   );
+  console.log("dataArray",Buffer.from(dataArray.buffer))
   return Buffer.from(dataArray.buffer);
 };
 
@@ -169,7 +171,7 @@ const createSocketInit = (io: SocketServer) => {
     socket.on("audio:send", async ({ room, audioBuffer }) => {
       // Initialize Deepgram connection if not already done
       if (!deepgramConnection) {
-        deepgramConnection = setupDeepgram(socket.id, (transcriptData) => {
+        deepgramConnection = setupDeepgram(socket.id, async(transcriptData) => {
           // Log transcript forwarding
           if (
             transcriptData.channel &&
@@ -178,9 +180,10 @@ const createSocketInit = (io: SocketServer) => {
           ) {
             const transcript =
               transcriptData.channel.alternatives[0].transcript;
-            const isFinal = transcriptData.is_final;
-           console.log(transcript,"here getting the data")
-           getAudio(transcript,socket,room)
+
+              const translatedTranscript = await translateText(transcript);
+               console.log("translatedTranscript",translatedTranscript)
+           getAudio(translatedTranscript,socket,room)
           }
         });
 
