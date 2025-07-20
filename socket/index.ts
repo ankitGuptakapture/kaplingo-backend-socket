@@ -5,6 +5,7 @@ import {
   type SocketServer,
   type DeepgramConnection,
 } from "../src/index";
+import translateText from "../service/translate";
 // import { Translate } from '@google-cloud/translate';
 
 class SocketRooms {
@@ -126,7 +127,7 @@ const createSocketInit = (io: SocketServer) => {
       );
 
       if (!deepgramConnection) {
-        deepgramConnection = setupDeepgram(socket.id, (transcriptData) => {
+        deepgramConnection = setupDeepgram(socket.id, async(transcriptData) => {
           // Log transcript forwarding
           if (
             transcriptData.channel &&
@@ -135,6 +136,7 @@ const createSocketInit = (io: SocketServer) => {
           ) {
             const transcript =
               transcriptData.channel.alternatives[0].transcript;
+            console.log({transcript});
             const isFinal = transcriptData.is_final;
             console.log(
               `[SOCKET FORWARD - ${socket.id}] Sending ${
@@ -142,6 +144,8 @@ const createSocketInit = (io: SocketServer) => {
               } transcript to room ${room}: "${transcript}"`
             );
           }
+
+          console.log({transcriptData});
 
           // Send transcript to the room
           socket.to(room).emit("transcript:received", {
@@ -157,7 +161,7 @@ const createSocketInit = (io: SocketServer) => {
     socket.on("audio:send", async ({ room, audioBuffer }) => {
       // Initialize Deepgram connection if not already done
       if (!deepgramConnection) {
-        deepgramConnection = setupDeepgram(socket.id, (transcriptData) => {
+        deepgramConnection = setupDeepgram(socket.id, async(transcriptData) => {
           // Log transcript forwarding
           if (
             transcriptData.channel &&
@@ -166,6 +170,10 @@ const createSocketInit = (io: SocketServer) => {
           ) {
             const transcript =
               transcriptData.channel.alternatives[0].transcript;
+
+              const translatedTranscript = await translateText(transcript);
+              console.log({transcript,translatedTranscript},"line 175");
+
             const isFinal = transcriptData.is_final;
             console.log(
               `[SOCKET FORWARD - ${socket.id}] Sending ${
@@ -173,6 +181,7 @@ const createSocketInit = (io: SocketServer) => {
               } transcript to room ${room}: "${transcript}"`
             );
           }
+
 
           socket.to(room).emit("transcript:received", {
             user: socket.id,
