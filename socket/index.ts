@@ -4,8 +4,54 @@ import {
   cleanupDeepgram,
   type SocketServer,
   type DeepgramConnection,
+  deepgramClient,
 } from "../src/index";
 // import { Translate } from '@google-cloud/translate';
+import fs from "fs";
+
+export const getAudio = async (text:string,socket:Socket,room:string) => {
+  console.log("firing up the audio")
+  const response = await deepgramClient.speak.request(
+    { text },
+    {
+      model: "aura-2-thalia-en",
+      encoding: "linear16",
+      container: "wav",
+    }
+  );
+  // STEP 3: Get the audio stream and headers from the response
+  const stream = await response.getStream();
+  const headers = await response.getHeaders();
+  if (stream) {
+    // STEP 4: Convert the stream to an audio buffer
+    const buffer = await getAudioBuffer(stream);
+    socket
+    .to(room)
+    .emit("audio:stream", { user: socket.id, audioBuffer: buffer });
+
+  } else {
+    console.error("Error generating audio:", stream);
+  }
+  if (headers) {
+    console.log("Headers:", headers);
+  }
+};
+// helper function to convert stream to audio buffer
+const getAudioBuffer = async (response: ReadableStream<Uint8Array>) => {
+  const reader = response.getReader();
+  const chunks = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const dataArray = chunks.reduce(
+    (acc, chunk) => Uint8Array.from([...acc, ...chunk]),
+    new Uint8Array(0)
+  );
+  return Buffer.from(dataArray.buffer);
+};
+
 
 class SocketRooms {
   io: SocketServer;
@@ -26,14 +72,14 @@ class SocketRooms {
     this.addToRoom(room, socket.id);
     socket.emit("room:joined", { room });
     socket.to(room).emit("user:joined", { user: socket.id });
-    console.log(`Socket ${socket.id} joined room ${room}`);
+
   }
 
   leaveRoom(room: string, socket: Socket) {
     socket.leave(room);
     this.removeFromRoom(room, socket.id);
     socket.to(room).emit("user:left", { user: socket.id });
-    console.log(`Socket ${socket.id} left room ${room}`);
+   
   }
 
   addToRoom(room: string, socketId: string) {
@@ -83,7 +129,7 @@ const createSocketInit = (io: SocketServer) => {
 
     socket.on("room:join", (data) => {
       const room = typeof data === "string" ? data : data.room;
-      console.log(`Join room request: ${room} from socket ${socket.id}`);
+     
       socketInstance.joinRoom(room, socket);
     });
 
@@ -92,7 +138,6 @@ const createSocketInit = (io: SocketServer) => {
     });
 
     socket.on("disconnect", () => {
-      console.log(`Socket ${socket.id} disconnected`);
 
       // Clean up Deepgram connection
       if (deepgramConnection) {
@@ -119,40 +164,7 @@ const createSocketInit = (io: SocketServer) => {
       socketInstance.sendMessage(message);
     });
 
-    // Initialize Deepgram connection when audio streaming starts
-    socket.on("audio:start", ({ room }) => {
-      console.log(
-        `Starting audio stream for socket ${socket.id} in room ${room}`
-      );
 
-      if (!deepgramConnection) {
-        deepgramConnection = setupDeepgram(socket.id, (transcriptData) => {
-          // Log transcript forwarding
-          if (
-            transcriptData.channel &&
-            transcriptData.channel.alternatives &&
-            transcriptData.channel.alternatives.length > 0
-          ) {
-            const transcript =
-              transcriptData.channel.alternatives[0].transcript;
-            const isFinal = transcriptData.is_final;
-            console.log(
-              `[SOCKET FORWARD - ${socket.id}] Sending ${
-                isFinal ? "FINAL" : "INTERIM"
-              } transcript to room ${room}: "${transcript}"`
-            );
-          }
-
-          // Send transcript to the room
-          socket.to(room).emit("transcript:received", {
-            user: socket.id,
-            transcript: transcriptData,
-            room: room,
-            timestamp: new Date().toISOString(),
-          });
-        });
-      }
-    });
 
     socket.on("audio:send", async ({ room, audioBuffer }) => {
       // Initialize Deepgram connection if not already done
@@ -167,22 +179,14 @@ const createSocketInit = (io: SocketServer) => {
             const transcript =
               transcriptData.channel.alternatives[0].transcript;
             const isFinal = transcriptData.is_final;
-            console.log(
-              `[SOCKET FORWARD - ${socket.id}] Sending ${
-                isFinal ? "FINAL" : "INTERIM"
-              } transcript to room ${room}: "${transcript}"`
-            );
+           console.log(transcript,"here getting the data")
+           getAudio(transcript,socket,room)
           }
-
-          socket.to(room).emit("transcript:received", {
-            user: socket.id,
-            transcript: transcriptData,
-            room: room,
-            timestamp: new Date().toISOString(),
-          });
         });
-      }
 
+        // Wait a bit for connection to establish
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
       // Send audio to Deepgram if connection is ready
       if (deepgramConnection && deepgramConnection.isConnected) {
         try {
@@ -190,9 +194,6 @@ const createSocketInit = (io: SocketServer) => {
           const buffer = Buffer.isBuffer(audioBuffer)
             ? audioBuffer
             : Buffer.from(audioBuffer);
-          console.log(
-            `[AUDIO SEND - ${socket.id}] Sending ${buffer.length} bytes to Deepgram`
-          );
           deepgramConnection.connection.send(buffer);
         } catch (error) {
           console.error(
@@ -202,14 +203,21 @@ const createSocketInit = (io: SocketServer) => {
         }
       } else {
         console.log(
-          `[AUDIO SEND - ${socket.id}] Deepgram connection not ready, skipping audio data`
+          `[AUDIO SEND - ${socket.id}] Deepgram connection not ready (isConnected: ${deepgramConnection?.isConnected}), skipping audio data`
         );
+        
+        // Try to reconnect if connection failed
+        if (deepgramConnection && !deepgramConnection.isConnected) {
+          console.log(`[AUDIO SEND - ${socket.id}] Attempting to reconnect Deepgram`);
+          cleanupDeepgram(deepgramConnection, socket.id);
+          deepgramConnection = null;
+        }
       }
 
       // Forward audio to other clients in the room
-      socket
-        .to(room)
-        .emit("audio:stream", { user: socket.id, audioBuffer: audioBuffer });
+      // socket
+      //   .to(room)
+      //   .emit("audio:stream", { user: socket.id, audioBuffer: audioBuffer });
     });
 
     // Handle silence events
