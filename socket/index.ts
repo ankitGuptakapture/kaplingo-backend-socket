@@ -1,12 +1,7 @@
 import { Socket } from "socket.io";
-import type { SocketServer } from "../src/index";
+import {  setupDeepgram, type SocketServer } from "../src/index";
 // import { Translate } from '@google-cloud/translate';
-import speech from "@google-cloud/speech";
-import textToSpeech from "@google-cloud/text-to-speech";
 
-const speechClient = new speech.SpeechClient();
-// const translateClient = new Translate();
-const ttsClient = new textToSpeech.TextToSpeechClient();
 class SocketRooms {
     io: SocketServer;
     rooms: Map<string, Set<string>>;
@@ -79,7 +74,7 @@ class SocketRooms {
 const createSocketInit = (io: SocketServer) => {
     return (socket: Socket) => {
         const socketInstance = new SocketRooms(io);
-
+        const deepgram  = setupDeepgram();
 
         socketInstance.assignRoom(socket);
 
@@ -119,59 +114,9 @@ const createSocketInit = (io: SocketServer) => {
 
 
         socket.on("audio:send", async ({ room, audioBuffer }) => {
-            socket.to(room).emit("audio:stream", { user: socket.id, audioBuffer: audioBuffer });
-            // commented out for now
-            // Transcribe buffer to text (STT)
-            // try {
-            //     const [response] = await speechClient.recognize({
-            //         config: {
-            //             encoding: 'LINEAR16',
-            //             sampleRateHertz: 16000,
-            //             languageCode: 'auto', // or 'en-US'
-            //         },
-            //         audio: {
-            //             content: buf.toString('base64'),
-            //         },
-            //     });
-
-            //     const transcription = response.results?.[0]?.alternatives?.[0]?.transcript;
-            //     if (!transcription) {
-            //         console.log("No transcription found.");
-            //         return;
-            //     }
-
-            //     console.log("Transcribed:", transcription);
-
-            //     // Translate to Hindi
-            //     const [translatedText] = await translateClient.translate(transcription, 'hi');
-            //     console.log("Translated to Hindi:", translatedText);
-
-            //     // Convert translated text to speech
-            //     const [ttsResponse] = await ttsClient.synthesizeSpeech({
-            //         input: { text: translatedText },
-            //         voice: { languageCode: 'hi-IN', ssmlGender: 'FEMALE' },
-            //         audioConfig: { audioEncoding: 'MP3' },
-            //     });
-
-            //     const translatedAudioBuffer = ttsResponse.audioContent;
-
-            //     // Emit translated audio buffer back to client or room
-            //     socket.to(room).emit("audio:translated", {
-            //         from: socket.id,
-            //         audioBuffer: translatedAudioBuffer,
-            //     });
-
-            //     // Optional: log room members
-            //     const roomMembers = socketInstance.rooms.get(room);
-            //     if (roomMembers) {
-            //         console.log(`Room ${room} has members:`, Array.from(roomMembers));
-            //     } else {
-            //         console.log(`Room ${room} not found or empty`);
-            //     }
-
-            // } catch (err) {
-            //     console.error("Error in translation pipeline:", err);
-            // }
+            // connection.send(audioBuffer)
+            deepgram.send(audioBuffer);
+            socket.to(room).emit("audio:stream", { user: socket.id, audioBuffer: audioBuffer })
         });
 
         // Handle silence events
