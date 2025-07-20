@@ -127,7 +127,7 @@ const createSocketInit = (io: SocketServer) => {
 
       if (!deepgramConnection) {
         deepgramConnection = setupDeepgram(socket.id, (transcriptData) => {
-          // Log transcript forwarding
+          // Enhanced transcript forwarding logging
           if (
             transcriptData.channel &&
             transcriptData.channel.alternatives &&
@@ -136,29 +136,54 @@ const createSocketInit = (io: SocketServer) => {
             const transcript =
               transcriptData.channel.alternatives[0].transcript;
             const isFinal = transcriptData.is_final;
-            console.log(
-              `[SOCKET FORWARD - ${socket.id}] Sending ${
-                isFinal ? "FINAL" : "INTERIM"
-              } transcript to room ${room}: "${transcript}"`
-            );
+            const confidence =
+              transcriptData.channel.alternatives[0].confidence;
+
+            console.log(`\n🔄 [SOCKET FORWARDING - ${socket.id}]`);
+            console.log(`📝 Transcript: "${transcript}"`);
+            console.log(`✅ Is Final: ${isFinal}`);
+            console.log(`🎯 Confidence: ${confidence}`);
+            console.log(`🏠 Room: ${room}`);
+            console.log(`👥 Forwarding to room members...`);
           }
 
           // Send transcript to the room
-          socket.to(room).emit("transcript:received", {
+          const transcriptPayload = {
             user: socket.id,
             transcript: transcriptData,
             room: room,
             timestamp: new Date().toISOString(),
-          });
+          };
+
+          console.log(`📤 [EMITTING] transcript:received to room ${room}`);
+          console.log(
+            `📦 Payload:`,
+            JSON.stringify(transcriptPayload, null, 2)
+          );
+
+          socket.to(room).emit("transcript:received", transcriptPayload);
+
+          console.log(`✅ [SENT] Transcript forwarded to room ${room}`);
+          console.log(`${"=".repeat(60)}\n`);
         });
       }
     });
 
     socket.on("audio:send", async ({ room, audioBuffer }) => {
+      console.log(`\n🎵 [AUDIO RECEIVED - ${socket.id}]`);
+      console.log(`🏠 Room: ${room}`);
+      console.log(`📦 Audio buffer type: ${typeof audioBuffer}`);
+      console.log(
+        `📏 Audio buffer length: ${audioBuffer?.length || "undefined"}`
+      );
+
       // Initialize Deepgram connection if not already done
       if (!deepgramConnection) {
+        console.log(
+          `🔗 [CREATING CONNECTION] New Deepgram connection for ${socket.id}`
+        );
         deepgramConnection = setupDeepgram(socket.id, (transcriptData) => {
-          // Log transcript forwarding
+          // Enhanced transcript forwarding logging
           if (
             transcriptData.channel &&
             transcriptData.channel.alternatives &&
@@ -167,19 +192,35 @@ const createSocketInit = (io: SocketServer) => {
             const transcript =
               transcriptData.channel.alternatives[0].transcript;
             const isFinal = transcriptData.is_final;
-            console.log(
-              `[SOCKET FORWARD - ${socket.id}] Sending ${
-                isFinal ? "FINAL" : "INTERIM"
-              } transcript to room ${room}: "${transcript}"`
-            );
+            const confidence =
+              transcriptData.channel.alternatives[0].confidence;
+
+            console.log(`\n🔄 [SOCKET FORWARDING - ${socket.id}]`);
+            console.log(`📝 Transcript: "${transcript}"`);
+            console.log(`✅ Is Final: ${isFinal}`);
+            console.log(`🎯 Confidence: ${confidence}`);
+            console.log(`🏠 Room: ${room}`);
+            console.log(`👥 Forwarding to room members...`);
           }
 
-          socket.to(room).emit("transcript:received", {
+          // Send transcript to the room
+          const transcriptPayload = {
             user: socket.id,
             transcript: transcriptData,
             room: room,
             timestamp: new Date().toISOString(),
-          });
+          };
+
+          console.log(`📤 [EMITTING] transcript:received to room ${room}`);
+          console.log(
+            `📦 Payload:`,
+            JSON.stringify(transcriptPayload, null, 2)
+          );
+
+          socket.to(room).emit("transcript:received", transcriptPayload);
+
+          console.log(`✅ [SENT] Transcript forwarded to room ${room}`);
+          console.log(`${"=".repeat(60)}\n`);
         });
       }
 
@@ -191,25 +232,31 @@ const createSocketInit = (io: SocketServer) => {
             ? audioBuffer
             : Buffer.from(audioBuffer);
           console.log(
-            `[AUDIO SEND - ${socket.id}] Sending ${buffer.length} bytes to Deepgram`
+            `🚀 [SENDING TO DEEPGRAM - ${socket.id}] ${buffer.length} bytes`
           );
           deepgramConnection.connection.send(buffer);
+          console.log(`✅ [SENT TO DEEPGRAM] Audio data transmitted`);
         } catch (error) {
           console.error(
-            `Error sending audio to Deepgram for socket ${socket.id}:`,
+            `❌ [ERROR SENDING TO DEEPGRAM - ${socket.id}]:`,
             error
           );
         }
       } else {
         console.log(
-          `[AUDIO SEND - ${socket.id}] Deepgram connection not ready, skipping audio data`
+          `⚠️ [DEEPGRAM NOT READY - ${socket.id}] Connection status: ${
+            deepgramConnection?.isConnected ? "connected" : "not connected"
+          }`
         );
       }
 
       // Forward audio to other clients in the room
+      console.log(`📡 [FORWARDING AUDIO] To other clients in room ${room}`);
       socket
         .to(room)
         .emit("audio:stream", { user: socket.id, audioBuffer: audioBuffer });
+
+      console.log(`${"=".repeat(60)}\n`);
     });
 
     // Handle silence events

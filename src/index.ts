@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import dotenv from "dotenv";
 import createSocketInit from "../socket";
+import createOptimizedSocketInit from "../socket/optimized-index";
 import cors from "cors";
 import {
   createClient,
@@ -63,7 +64,8 @@ export const setupDeepgram = (
   });
 
   deepgram.addListener(LiveTranscriptionEvents.Transcript, (data) => {
-    console.log(`deepgram: transcript received for socket ${socketId}`);
+    console.log(`\n🎤 [TRANSCRIPT RECEIVED - ${socketId}]`);
+    console.log(`📊 Raw data:`, JSON.stringify(data, null, 2));
 
     // Log detailed transcript information
     if (
@@ -75,21 +77,31 @@ export const setupDeepgram = (
       const confidence = data.channel.alternatives[0].confidence;
       const isFinal = data.is_final;
 
-      console.log(` "${transcript}" (confidence: ${confidence})`);
+      console.log(`📝 Transcript: "${transcript}"`);
+      console.log(`🎯 Confidence: ${confidence}`);
+      console.log(`✅ Is Final: ${isFinal}`);
+      console.log(`📏 Length: ${transcript.length} characters`);
 
       // Only forward non-empty final transcripts
       if (isFinal && transcript.trim().length > 0) {
+        console.log(`🚀 [FORWARDING FINAL] "${transcript}" to callback`);
         if (onTranscript) {
           onTranscript(data);
         }
       } else if (!isFinal && transcript.trim().length > 0) {
+        console.log(`⏳ [FORWARDING INTERIM] "${transcript}" to callback`);
         // Optionally forward interim results too
         if (onTranscript) {
           onTranscript(data);
         }
+      } else {
+        console.log(`⚠️ [SKIPPING] Empty transcript or not final`);
       }
     } else {
+      console.log(`❌ [ERROR] No transcript data in response`);
+      console.log(`📊 Data structure:`, data);
     }
+    console.log(`${"=".repeat(60)}\n`);
   });
 
   deepgram.addListener(LiveTranscriptionEvents.Close, async () => {
@@ -139,7 +151,18 @@ const io = new Server(httpServer, {
 });
 
 export type SocketServer = typeof io;
-const socketInit = createSocketInit(io);
+
+// Choose between original and optimized implementation
+const USE_OPTIMIZED = process.env.USE_OPTIMIZED_TRANSCRIPTION === "true";
+const socketInit = USE_OPTIMIZED
+  ? createOptimizedSocketInit(io)
+  : createSocketInit(io);
+
+console.log(
+  `Using ${
+    USE_OPTIMIZED ? "OPTIMIZED" : "ORIGINAL"
+  } transcription implementation`
+);
 
 io.on("connection", socketInit);
 
