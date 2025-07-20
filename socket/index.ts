@@ -178,12 +178,12 @@ const createSocketInit = (io: SocketServer) => {
             transcriptData.channel.alternatives &&
             transcriptData.channel.alternatives.length > 0
           ) {
-            const transcript =
-              transcriptData.channel.alternatives[0].transcript;
-
+            const transcript = transcriptData.channel.alternatives[0].transcript;
+            const isFinal = transcriptData.is_final;
+            if (isFinal && transcript.trim().length > 0) {
               const translatedTranscript = await translateText(transcript);
-               console.log("translatedTranscript",translatedTranscript)
-           getAudio(translatedTranscript,socket,room)
+              getAudio(translatedTranscript, socket, room);
+            }
           }
         });
 

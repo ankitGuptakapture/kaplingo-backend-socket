@@ -88,14 +88,8 @@ export const setupDeepgram = (
         if (onTranscript) {
           onTranscript(data);
         }
-      } else if (!isFinal && transcript.trim().length > 0) {
-        // Optionally forward interim results too
-        if (onTranscript) {
-          onTranscript(data);
-        }
-      }
-    } else {
-    }
+      } 
+    } 
   });
 
   deepgram.addListener(LiveTranscriptionEvents.Close, async () => {
@@ -155,7 +149,10 @@ const io = new Server(httpServer, {
 export type SocketServer = typeof io;
 const socketInit = createSocketInit(io);
 
-io.on("connection", socketInit);
+io.on("connection", (ws) => {
+  socketInit(ws)
+  setupDeepgram("jfjf")
+});
 
 const PORT = process.env.PORT || 8080;
 httpServer.listen(PORT, () => {
