@@ -7,51 +7,64 @@ import {
   deepgramClient,
 } from "../src/index";
 import translateText from "../service/translate";
-// import { Translate } from '@google-cloud/translate';
 import fs from "fs";
 
-export const getAudio = async (text: string, socket: Socket, room: string) => {
-  const response = await deepgramClient.speak.request(
-    { text },
-    {
-      model: "aura-2-thalia-en",
-      encoding: "linear16",
-      sample_rate: 16000,
-      container: "none"
-    }
-  );
-  // STEP 3: Get the audio stream and headers from the response
-  const stream = await response.getStream();
-  const headers = await response.getHeaders();
-  if (stream) {
-    // STEP 4: Convert the stream to an audio buffer
-    const buffer = await getAudioBuffer(stream);
-    socket
-      .to(room)
-      .emit("audio:stream", { user: socket.id, audioBuffer: buffer });
+export const getAudio = async (
+  text: string,
+  socket: Socket,
+  room: string,
+  onStreamEnd: () => void
+) => {
+  try {
+    const response = await deepgramClient.speak.request(
+      { text },
+      {
+        model: "aura-2-thalia-en",
+        encoding: "linear16",
+        sample_rate: 16000,
+        container: "none",
+      }
+    );
 
-  } else {
-    console.error("Error generating audio:", stream);
+    const stream = await response.getStream();
+    if (stream) {
+      socket.to(room).emit("audio:stream:start", { user: socket.id });
+      const reader = stream.getReader();
+      let leftover: Buffer | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          socket.to(room).emit("audio:stream:stop", { user: socket.id });
+          onStreamEnd();
+          break;
+        }
+
+        let currentChunk = Buffer.from(value);
+        if (leftover) {
+          currentChunk = Buffer.concat([leftover, currentChunk]);
+          leftover = null;
+        }
+
+        const sendableLength = currentChunk.length - (currentChunk.length % 2);
+        if (sendableLength > 0) {
+          const chunkToSend = currentChunk.subarray(0, sendableLength);
+          socket
+            .to(room)
+            .emit("audio:stream", { user: socket.id, audioBuffer: chunkToSend });
+        }
+        if (sendableLength < currentChunk.length) {
+          leftover = currentChunk.subarray(sendableLength);
+        }
+      }
+    } else {
+      console.error("Error generating audio: Stream is null");
+      onStreamEnd();
+    }
+  } catch (error) {
+    console.error("Error in getAudio:", error);
+    onStreamEnd();
   }
-  if (headers) {
-    console.log("Headers:", headers);
-  }
-};
-// helper function to convert stream to audio buffer
-const getAudioBuffer = async (response: ReadableStream<Uint8Array>) => {
-  const reader = response.getReader();
-  const chunks = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    console.log(value,"valueee")
-    chunks.push(value);
-  }
-  const dataArray = chunks.reduce(
-    (acc, chunk) => Uint8Array.from([...acc, ...chunk]),
-    new Uint8Array(0)
-  );
-  return Buffer.from(dataArray.buffer);
 };
 
 
@@ -74,7 +87,6 @@ class SocketRooms {
     this.addToRoom(room, socket.id);
     socket.emit("room:joined", { room });
     socket.to(room).emit("user:joined", { user: socket.id });
-
   }
 
   leaveRoom(room: string, socket: Socket) {
@@ -127,8 +139,61 @@ const createSocketInit = (io: SocketServer) => {
     const socketInstance = new SocketRooms(io);
     let deepgramConnection: DeepgramConnection | null = null;
     let currentRoom: string | null = null;
+
     let audioQueue: Buffer[] = [];
     let isConnecting = false;
+    let speechTimeout: NodeJS.Timeout | null = null;
+    const SPEECH_TIMEOUT_MS = 300;
+    
+    let responseQueue: string[] = [];
+    let isSpeaking = false;
+
+    const processResponseQueue = async () => {
+      if (isSpeaking || responseQueue.length === 0) {
+        return;
+      }
+
+      isSpeaking = true;
+      const textToSpeak = responseQueue.shift();
+
+      if (textToSpeak && currentRoom) {
+        getAudio(textToSpeak, socket, currentRoom, () => {
+          isSpeaking = false;
+          processResponseQueue(); 
+        });
+      } else {
+        isSpeaking = false;
+      }
+    };
+    
+    const sendAudioBatchToDeepgram = () => {
+      if (speechTimeout) clearTimeout(speechTimeout);
+      if (deepgramConnection?.isConnected && audioQueue.length > 0) {
+        const batch = Buffer.concat(audioQueue);
+        deepgramConnection.connection.send(batch);
+        audioQueue = [];
+      }
+    };
+
+    const handleTranscript = async (transcriptData: any) => {
+      if (
+        transcriptData.channel &&
+        transcriptData.channel.alternatives &&
+        transcriptData.channel.alternatives.length > 0
+      ) {
+        const transcript = transcriptData.channel.alternatives[0].transcript;
+        const isFinal = transcriptData.is_final;
+
+        if (isFinal && transcript.trim().length > 0) {
+          // Get the agent's response based on the transcript
+          const agentResponse = await translateText(transcript);
+
+          // Add the agent's response to the queue to be spoken
+          responseQueue.push(agentResponse);
+          processResponseQueue();
+        }
+      }
+    };
 
     socketInstance.assignRoom(socket);
 
@@ -146,10 +211,13 @@ const createSocketInit = (io: SocketServer) => {
     });
 
     socket.on("disconnect", () => {
+      sendAudioBatchToDeepgram();
       if (deepgramConnection) {
         cleanupDeepgram(deepgramConnection, socket.id);
         deepgramConnection = null;
       }
+      responseQueue = [];
+      isSpeaking = false;
 
       for (const [room, members] of socketInstance.rooms.entries()) {
         if (members.has(socket.id)) {
@@ -171,68 +239,44 @@ const createSocketInit = (io: SocketServer) => {
     });
 
     socket.on("audio:send", async ({ room, audioBuffer }) => {
-      const buffer = Buffer.isBuffer(audioBuffer)
-        ? audioBuffer
-        : Buffer.from(audioBuffer);
-
-      if (deepgramConnection && deepgramConnection.isConnected) {
-        deepgramConnection.connection.send(buffer);
-        return;
-      }
-
+      const buffer = Buffer.from(audioBuffer);
       audioQueue.push(buffer);
 
-      if (!isConnecting) {
+      if (speechTimeout) clearTimeout(speechTimeout);
+      speechTimeout = setTimeout(sendAudioBatchToDeepgram, SPEECH_TIMEOUT_MS);
+
+      if (!isConnecting && !deepgramConnection) {
         isConnecting = true;
-        console.log(`Initializing Deepgram for ${socket.id}`);
         currentRoom = room;
 
         const onOpen = () => {
-          console.log(`Deepgram connection open for ${socket.id}. Sending queued audio.`);
-          audioQueue.forEach((queuedBuffer) => {
-            deepgramConnection?.connection.send(queuedBuffer);
-          });
-          audioQueue = [];
+          isConnecting = false;
         };
-        
+
         deepgramConnection = setupDeepgram(
           socket.id,
-          async (transcriptData: any) => {
-            if (
-              transcriptData.channel &&
-              transcriptData.channel.alternatives &&
-              transcriptData.channel.alternatives.length > 0
-            ) {
-              const transcript =
-                transcriptData.channel.alternatives[0].transcript;
-              const isFinal = transcriptData.is_final;
-              if (isFinal && transcript.trim().length > 0 && currentRoom) {
-                // const translatedTranscript = await translateText(transcript);
-              
-                getAudio(transcript, socket, currentRoom);
-              }
-            }
-          },
+          handleTranscript,
           socket,
           onOpen
         );
       }
     });
 
-    // Handle silence events
+
     socket.on("audio:silence", ({ room }) => {
       console.log(`Silence event from ${socket.id} in room ${room}`);
       socket.to(room).emit("audio:silence", { user: socket.id });
+      sendAudioBatchToDeepgram();
     });
 
-    // Handle audio stop
+    // Handle audio stop - process immediately
     socket.on("audio:stop", ({ room }) => {
       console.log(
         `Stopping audio stream for socket ${socket.id} in room ${room}`
       );
+      sendAudioBatchToDeepgram();
       if (deepgramConnection) {
-        cleanupDeepgram(deepgramConnection, socket.id);
-        deepgramConnection = null;
+        // Don't clean up here, let disconnect handle it
       }
     });
   };
