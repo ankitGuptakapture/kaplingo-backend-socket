@@ -2,7 +2,7 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import dotenv from "dotenv";
-import createSocketInit from "../socket";
+import createSocketInit, { clearData, userRooms } from "../socket";
 import cors from "cors";
 import {
   createClient,
@@ -16,9 +16,15 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 
+app.post("/api/user-left",(req,res)=>{
+  // const { user,room }  = req.body
+  // console.log("user left",user,room)
+  clearData()
+})
+
 
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-app.use(cors({ origin: "*" }));
+app.use(cors())
 
 export const deepgramClient = createClient(process.env.DEEPGRAM_API_KEY);
 export interface DeepgramConnection {

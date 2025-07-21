@@ -11,8 +11,11 @@ import translateText from "../service/translate";
 type UserLang = {
   user?: string,
 }
-const userRooms: Record<string, UserLang> = {}
+export let userRooms: Record<string, UserLang> = {}
 
+export const clearData = () =>{
+  userRooms = {}
+}
 const saveLang = ({ room, user, lang }: { room: string, user: string, lang: string }) => {
   if (!userRooms[room]) {
     userRooms[room] = {}
@@ -281,7 +284,12 @@ const createSocketInit = (io: SocketServer) => {
       }
     });
 
+    socket.on("remove:user",()=>{
+      console.log("removing user")
+    })
+
     socket.on("disconnect", () => {
+      console.log("Disconnected from socket");
       sendAudioBatchToDeepgram();
       if (deepgramConnection) {
         cleanupDeepgram(deepgramConnection, socket.id);
