@@ -13,8 +13,15 @@ type UserLang = {
 }
 export let userRooms: Record<string, UserLang> = {}
 
-export const clearData = () =>{
-  userRooms = {}
+export const clearData = (user:string,room:string) =>{
+  if(user && room){
+    if(userRooms[room]){
+      if((userRooms[room] as any)[user]){
+        delete (userRooms[room] as any)[user]
+      }
+    }
+  }
+  console.log(userRooms,"userRooms")
 }
 const saveLang = ({ room, user, lang }: { room: string, user: string, lang: string }) => {
   if (!userRooms[room]) {
@@ -193,7 +200,7 @@ const createSocketInit = (io: SocketServer) => {
 
         try {
           let targetLanguage = "English";
-          if (currentRoom && currentUser) {
+          if(currentUser && currentRoom){
             targetLanguage = getLang({ room: currentRoom, user: currentUser });
           }
           console.log({ targetLanguage }, "targetLanguage")
@@ -318,8 +325,10 @@ const createSocketInit = (io: SocketServer) => {
     });
 
     socket.on("audio:send", async ({ room, audioBuffer,user }) => {
-      console.log({ audioBuffer }, "audioBuffer")
+      console.log({ audioBuffer,userRooms }, "audioBuffer")
       const buffer = Buffer.from(audioBuffer);
+      currentUser = user;
+      currentRoom = room
       audioQueue.push(buffer);
       // Mark the time when the first buffer of a new utterance is received
       if (!transcriptStartTime) {
@@ -329,9 +338,6 @@ const createSocketInit = (io: SocketServer) => {
       sendAudioBatchToDeepgram();
       if (!isConnecting && !deepgramConnection) {
         isConnecting = true;
-        currentRoom = room;
-        currentUser = user;
-
         const language = getLang({ room, user })
         const onOpen = () => {
           isConnecting = false;

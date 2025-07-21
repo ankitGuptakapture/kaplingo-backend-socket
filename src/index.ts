@@ -17,9 +17,10 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 
 app.post("/api/user-left",(req,res)=>{
-  // const { user,room }  = req.body
+  const { user="",room="" }  = req.body
   // console.log("user left",user,room)
-  clearData()
+  clearData(user,room)
+  return res.sendStatus(204)
 })
 
 
