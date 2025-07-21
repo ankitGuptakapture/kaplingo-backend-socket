@@ -7,7 +7,6 @@ import {
   deepgramClient,
 } from "../src/index";
 import translateText from "../service/translate";
-import fs from "fs";
 
 export const getAudio = async (
   text: string,
@@ -148,6 +147,40 @@ const createSocketInit = (io: SocketServer) => {
     let responseQueue: string[] = [];
     let isSpeaking = false;
 
+
+    let transcriptQueue = "";
+    let translateTimeout: NodeJS.Timeout | null = null;
+
+    const flushTranscriptQueue = async () => {
+      if (transcriptQueue.trim().length > 0) {
+        const toTranslate = transcriptQueue.trim();
+        transcriptQueue = "";
+
+        try {
+          const translated = await translateText(toTranslate);
+          console.log({translated},"translated")
+          responseQueue.push(translated);
+          processResponseQueue();
+        } catch (err) {
+          console.error("Translation error:", err);
+        }
+      }
+    };
+
+    const queueTranscript = (text: string) => {
+      transcriptQueue += " " + text;
+
+      // If sentence ends, flush immediately
+      if (/[.?!।]$/.test(text.trim())) {
+        if (translateTimeout) clearTimeout(translateTimeout);
+        flushTranscriptQueue();
+      } else {
+        // Else flush after 1 second pause
+        if (translateTimeout) clearTimeout(translateTimeout);
+        translateTimeout = setTimeout(() => flushTranscriptQueue(), 1000);
+      }
+    };
+
     const processResponseQueue = async () => {
       if (isSpeaking || responseQueue.length === 0) {
         return;
@@ -176,23 +209,11 @@ const createSocketInit = (io: SocketServer) => {
     };
 
     const handleTranscript = async (transcriptData: any) => {
-      if (
-        transcriptData.channel &&
-        transcriptData.channel.alternatives &&
-        transcriptData.channel.alternatives.length > 0
-      ) {
-        const transcript = transcriptData.channel.alternatives[0].transcript;
-        const isFinal = transcriptData.is_final;
-
-        if (isFinal && transcript.trim().length > 0) {
-          // Get the agent's response based on the transcript
-          const agentResponse = await translateText(transcript);
-
-          // Add the agent's response to the queue to be spoken
-          responseQueue.push(agentResponse);
-          processResponseQueue();
-        }
-      }
+    const transcript = transcriptData.channel.alternatives[0].transcript;
+    console.log({transcript},"transcript")
+    if (transcript) {
+      queueTranscript(transcript);
+    }
     };
 
     socketInstance.assignRoom(socket);
@@ -201,6 +222,18 @@ const createSocketInit = (io: SocketServer) => {
       const room = typeof data === "string" ? data : data.room;
       currentRoom = room;
       socketInstance.joinRoom(room, socket);
+      if (!deepgramConnection) {
+        deepgramConnection = setupDeepgram(
+          socket.id,
+          handleTranscript,
+          socket,
+          () => {
+            isConnecting = false;
+            console.log(`Deepgram connected early for room ${room}`);
+          }
+        );
+        isConnecting = true;
+      }
     });
 
     socket.on("room:leave", (room: string) => {
@@ -239,6 +272,7 @@ const createSocketInit = (io: SocketServer) => {
     });
 
     socket.on("audio:send", async ({ room, audioBuffer }) => {
+      console.log({audioBuffer},"audioBuffer")
       const buffer = Buffer.from(audioBuffer);
       audioQueue.push(buffer);
 
@@ -266,7 +300,7 @@ const createSocketInit = (io: SocketServer) => {
     socket.on("audio:silence", ({ room }) => {
       console.log(`Silence event from ${socket.id} in room ${room}`);
       // socket.to(room).emit("audio:silence", { user: socket.id });
-      sendAudioBatchToDeepgram();
+      // sendAudioBatchToDeepgram();
     });
 
     // Handle audio stop - process immediately
