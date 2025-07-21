@@ -31,7 +31,8 @@ export const setupDeepgram = (
   socketId: string,
   onTranscript?: (data: any) => void,
   socket?: Socket,
-  onOpen?: () => void
+  onOpen?: () => void,
+  language?: string
 ): DeepgramConnection => {
   if (!process.env.DEEPGRAM_API_KEY) {
     console.error(`No Deepgram API key found for socket ${socketId}`);
@@ -48,7 +49,7 @@ export const setupDeepgram = (
     encoding: "linear16",
     sample_rate: 16000,
     channels: 1,
-    language: "hi",
+    language: "multi",
   });
 
   const keepAlive = setInterval(() => {

@@ -8,6 +8,34 @@ import {
   io,
 } from "../src/index";
 import translateText from "../service/translate";
+type UserLang = {
+  user?: string,
+}
+const userRooms: Record<string, UserLang> = {}
+
+const saveLang = ({ room, user, lang }: { room: string, user: string, lang: string }) => {
+  if (!userRooms[room]) {
+    userRooms[room] = {}
+  }
+  if (userRooms[room]) {
+    userRooms[room] = {  ...userRooms[room], [user]: lang }
+  }
+}
+
+const getLang = ({ room, user }: { room: string, user: string }) => {
+  if (userRooms[room]) {
+    const ids = Object.keys(userRooms[room])
+    let lang = "English"
+    ids.forEach((id) => {
+      if (id !== user) {
+        lang = (userRooms[room] as any)[id]
+      }
+    })
+    return lang
+  } else {
+    return "English"
+  }
+}
 
 export const getAudio = async (
   text: string,
@@ -140,6 +168,7 @@ const createSocketInit = (io: SocketServer) => {
     const socketInstance = new SocketRooms(io);
     let deepgramConnection: DeepgramConnection | null = null;
     let currentRoom: string | null = null;
+    let currentUser: string | null = null;
 
     let audioQueue: Buffer[] = [];
     let isConnecting = false;
@@ -160,8 +189,12 @@ const createSocketInit = (io: SocketServer) => {
         transcriptQueue = "";
 
         try {
-          const translated = await translateText(toTranslate);
-          console.log({translated},"translated")
+          let targetLanguage = "English";
+          if (currentRoom && currentUser) {
+            targetLanguage = getLang({ room: currentRoom, user: currentUser });
+          }
+          console.log({ targetLanguage }, "targetLanguage")
+          const translated = await translateText(toTranslate, targetLanguage);
           responseQueue.push(translated);
           processResponseQueue();
         } catch (err) {
@@ -212,11 +245,11 @@ const createSocketInit = (io: SocketServer) => {
     };
 
     const handleTranscript = async (transcriptData: any) => {
-    const transcript = transcriptData.channel.alternatives[0].transcript;
-    console.log({transcript},"transcript")
-    if (transcript) {
-      queueTranscript(transcript);
-    }
+      const transcript = transcriptData.channel.alternatives[0].transcript;
+      console.log({ transcript }, "transcript")
+      if (transcript) {
+        queueTranscript(transcript);
+      }
     };
 
     socketInstance.assignRoom(socket);
@@ -224,7 +257,9 @@ const createSocketInit = (io: SocketServer) => {
     socket.on("room:join", (data) => {
       const room = typeof data === "string" ? data : data.room;
       currentRoom = room;
+      saveLang({ room, user: data.user, lang: data.lang })
       socketInstance.joinRoom(room, socket);
+      console.log(userRooms,"user rooms")
       if (!deepgramConnection) {
         deepgramConnection = setupDeepgram(
           socket.id,
@@ -274,8 +309,8 @@ const createSocketInit = (io: SocketServer) => {
       socketInstance.sendMessage(message);
     });
 
-    socket.on("audio:send", async ({ room, audioBuffer }) => {
-      console.log({audioBuffer},"audioBuffer")
+    socket.on("audio:send", async ({ room, audioBuffer,user }) => {
+      console.log({ audioBuffer }, "audioBuffer")
       const buffer = Buffer.from(audioBuffer);
       audioQueue.push(buffer);
       // Mark the time when the first buffer of a new utterance is received
@@ -287,7 +322,9 @@ const createSocketInit = (io: SocketServer) => {
       if (!isConnecting && !deepgramConnection) {
         isConnecting = true;
         currentRoom = room;
+        currentUser = user;
 
+        const language = getLang({ room, user })
         const onOpen = () => {
           isConnecting = false;
         };
@@ -296,7 +333,8 @@ const createSocketInit = (io: SocketServer) => {
           socket.id,
           handleTranscript,
           socket,
-          onOpen
+          onOpen,
+          language
         );
       }
     });
