@@ -55,8 +55,7 @@ export const setupDeepgram = (
     vad_events: false,
     encoding: "linear16",
     sample_rate: 16000,
-    channels: 1,
-    language: "multi",
+    language: "hi",
   });
 
   const keepAlive = setInterval(() => {
