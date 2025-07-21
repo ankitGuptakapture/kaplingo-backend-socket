@@ -11,9 +11,12 @@ import {
 } from "@deepgram/sdk";
 import { Socket } from "socket.io";
 
+
 dotenv.config();
 const app = express();
 app.use(express.json({ limit: "50mb" }));
+
+
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cors({ origin: "*" }));
 
@@ -113,8 +116,10 @@ export const cleanupDeepgram = (
 };
 
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: { origin: "*" },
+export const io = new Server(httpServer, {
+  cors: {
+    origin: "*",
+  },
 });
 
 export type SocketServer = typeof io;
