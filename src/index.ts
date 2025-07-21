@@ -9,7 +9,7 @@ import {
   LiveTranscriptionEvents,
   LiveClient,
 } from "@deepgram/sdk";
-import fetch from "cross-fetch";
+import { Socket } from "socket.io";
 
 dotenv.config();
 const app = express();
@@ -25,10 +25,12 @@ export interface DeepgramConnection {
 }
 export const setupDeepgram = (
   socketId: string,
-  onTranscript?: (data: any) => void
+  onTranscript?: (data: any) => void,
+  socket?: Socket,
+  onOpen?: () => void
 ): DeepgramConnection => {
-  console.log(`Setting up Deepgram for socket: ${socketId}`);
-  console.log(`Deepgram API Key present: ${!!process.env.DEEPGRAM_API_KEY}`);
+
+ 
 
   if (!process.env.DEEPGRAM_API_KEY) {
     console.error(`No Deepgram API key found for socket ${socketId}`);
@@ -47,13 +49,12 @@ export const setupDeepgram = (
     channels: 1,
     language: "hi",
   });
-
   const keepAlive = setInterval(() => {
     if (deepgram.getReadyState() === 1) {
-      console.log(`deepgram: keepalive for ${socketId}`);
+      console.log(`deepgram: keepalive for  `);
       deepgram.keepAlive();
     } else {
-      console.log(`deepgram: connection not ready for keepalive (state: ${deepgram.getReadyState()}) for ${socketId}`);
+      console.log(`deepgram: connection not ready for keepalive (state: ${deepgram.getReadyState()})`);
     }
   }, 8000);
 
@@ -64,26 +65,21 @@ export const setupDeepgram = (
   };
 
   deepgram.addListener(LiveTranscriptionEvents.Open, async () => {
-    // console.log(`deepgram: connected successfully for socket ${socketId}`);
+    console.log(`deepgram: connected successfully for socket `);
     connectionObj.isConnected = true;
+    if (onOpen) {
+      onOpen();
+    }
   });
 
   deepgram.addListener(LiveTranscriptionEvents.Transcript, (data) => {
-    // console.log(`deepgram: transcript received for socket ${socketId}`);
-
-    // Log detailed transcript information
     if (
       data.channel &&
       data.channel.alternatives &&
       data.channel.alternatives.length > 0
     ) {
       const transcript = data.channel.alternatives[0].transcript;
-      const confidence = data.channel.alternatives[0].confidence;
       const isFinal = data.is_final;
-
-      // console.log(` "${transcript}" (confidence: ${confidence})`);
-      // getAudio(transcript,socket,room)
-      // Only forward non-empty final transcripts
       if (isFinal && transcript.trim().length > 0) {
         if (onTranscript) {
           onTranscript(data);
@@ -104,18 +100,7 @@ export const setupDeepgram = (
     connectionObj.isConnected = false;
   });
 
-  deepgram.addListener(LiveTranscriptionEvents.Metadata, (data) => {
-    console.log(`deepgram: metadata received for socket ${socketId}:`, data);
-  });
 
-  // Add connection timeout check
-  setTimeout(() => {
-    if (!connectionObj.isConnected) {
-      console.warn(`deepgram: connection timeout for socket ${socketId} - connection not established within 5 seconds`);
-    }
-  }, 5000);
-
-  console.log(`deepgram: setup complete for socket ${socketId}, waiting for connection...`);
   return connectionObj;
 };
 
@@ -149,10 +134,7 @@ const io = new Server(httpServer, {
 export type SocketServer = typeof io;
 const socketInit = createSocketInit(io);
 
-io.on("connection", (ws) => {
-  socketInit(ws)
-  setupDeepgram("jfjf")
-});
+io.on("connection", socketInit);
 
 const PORT = process.env.PORT || 8080;
 httpServer.listen(PORT, () => {
