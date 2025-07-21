@@ -241,11 +241,10 @@ const createSocketInit = (io: SocketServer) => {
     socket.on("audio:send", async ({ room, audioBuffer }) => {
       const buffer = Buffer.from(audioBuffer);
       audioQueue.push(buffer);
-
-      if (speechTimeout) clearTimeout(speechTimeout);
-      speechTimeout = setTimeout(sendAudioBatchToDeepgram, SPEECH_TIMEOUT_MS);
-
+    
+      sendAudioBatchToDeepgram()
       if (!isConnecting && !deepgramConnection) {
+        console.log("Initializing Deepgram connection");
         isConnecting = true;
         currentRoom = room;
 
@@ -266,7 +265,7 @@ const createSocketInit = (io: SocketServer) => {
     socket.on("audio:silence", ({ room }) => {
       console.log(`Silence event from ${socket.id} in room ${room}`);
       // socket.to(room).emit("audio:silence", { user: socket.id });
-      sendAudioBatchToDeepgram();
+      // sendAudioBatchToDeepgram();
     });
 
     // Handle audio stop - process immediately
