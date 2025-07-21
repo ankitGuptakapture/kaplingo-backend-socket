@@ -48,14 +48,14 @@ export const setupDeepgram = (
 
   const deepgram = deepgramClient.listen.live({
     smart_format: true,
-    model: "nova-2",
+    model: "general",
     punctuate: true,
     interim_results: false,
     endpointing: 100,
     vad_events: false,
     encoding: "linear16",
     sample_rate: 16000,
-    language: "hi",
+    language: language,
   });
 
   const keepAlive = setInterval(() => {

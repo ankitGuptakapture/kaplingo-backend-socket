@@ -36,6 +36,7 @@ const getLang = ({ room, user }: { room: string, user: string }) => {
   if (userRooms[room]) {
     const ids = Object.keys(userRooms[room])
     let lang = "English"
+
     ids.forEach((id) => {
       if (id !== user) {
         lang = (userRooms[room] as any)[id]
@@ -200,11 +201,13 @@ const createSocketInit = (io: SocketServer) => {
 
         try {
           let targetLanguage = "English";
+          console.log({currentUser,currentRoom},"currentUser")
           if(currentUser && currentRoom){
             targetLanguage = getLang({ room: currentRoom, user: currentUser });
           }
-          console.log({ targetLanguage }, "targetLanguage")
+          console.log({ targetLanguage,toTranslate }, "targetLanguage")
           const translated = await translateText(toTranslate, targetLanguage);
+          console.log({translated},"translated")
           responseQueue.push(translated);
           processResponseQueue();
         } catch (err) {
@@ -266,6 +269,7 @@ const createSocketInit = (io: SocketServer) => {
 
     socket.on("room:join", (data) => {
       const room = typeof data === "string" ? data : data.room;
+      const language = data?.lang_code || "en"
       currentRoom = room;
       saveLang({ room, user: data.user, lang: data.lang })
       socketInstance.joinRoom(room, socket);
@@ -278,7 +282,8 @@ const createSocketInit = (io: SocketServer) => {
           () => {
             isConnecting = false;
             console.log(`Deepgram connected early for room ${room}`);
-          }
+          },
+         language
         );
         isConnecting = true;
       }
@@ -325,7 +330,7 @@ const createSocketInit = (io: SocketServer) => {
     });
 
     socket.on("audio:send", async ({ room, audioBuffer,user }) => {
-      console.log({ audioBuffer,userRooms }, "audioBuffer")
+      console.log({userRooms,audioBuffer }, "audioBuffer")
       const buffer = Buffer.from(audioBuffer);
       currentUser = user;
       currentRoom = room
