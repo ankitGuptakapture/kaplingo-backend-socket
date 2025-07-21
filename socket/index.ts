@@ -5,6 +5,7 @@ import {
   type SocketServer,
   type DeepgramConnection,
   deepgramClient,
+  io,
 } from "../src/index";
 import translateText from "../service/translate";
 import fs from "fs";
@@ -28,14 +29,14 @@ export const getAudio = async (
 
     const stream = await response.getStream();
     if (stream) {
-      socket.to(room).emit("audio:stream:start", { user: socket.id });
+      io.to(room).except(socket.id).emit("audio:stream:start", { user: socket.id });
       const reader = stream.getReader();
       let leftover: Buffer | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          socket.to(room).emit("audio:stream:stop", { user: socket.id });
+          io.to(room).except(room).emit("audio:stream:stop", { user: socket.id });
           onStreamEnd();
           break;
         }
@@ -49,8 +50,9 @@ export const getAudio = async (
         const sendableLength = currentChunk.length - (currentChunk.length % 2);
         if (sendableLength > 0) {
           const chunkToSend = currentChunk.subarray(0, sendableLength);
-          socket
+          io
             .to(room)
+            .except(socket.id)
             .emit("audio:stream", { user: socket.id, audioBuffer: chunkToSend });
         }
         if (sendableLength < currentChunk.length) {
@@ -144,9 +146,10 @@ const createSocketInit = (io: SocketServer) => {
     let isConnecting = false;
     let speechTimeout: NodeJS.Timeout | null = null;
     const SPEECH_TIMEOUT_MS = 100;
-    
+
     let responseQueue: string[] = [];
     let isSpeaking = false;
+    let transcriptStartTime: number | null = null;
 
     const processResponseQueue = async () => {
       if (isSpeaking || responseQueue.length === 0) {
@@ -159,13 +162,13 @@ const createSocketInit = (io: SocketServer) => {
       if (textToSpeak && currentRoom) {
         getAudio(textToSpeak, socket, currentRoom, () => {
           isSpeaking = false;
-          processResponseQueue(); 
+          processResponseQueue();
         });
       } else {
         isSpeaking = false;
       }
     };
-    
+
     const sendAudioBatchToDeepgram = () => {
       if (speechTimeout) clearTimeout(speechTimeout);
       if (deepgramConnection?.isConnected && audioQueue.length > 0) {
@@ -185,6 +188,12 @@ const createSocketInit = (io: SocketServer) => {
         const isFinal = transcriptData.is_final;
 
         if (isFinal && transcript.trim().length > 0) {
+          const now = Date.now();
+          if (transcriptStartTime) {
+            const delay = now - transcriptStartTime;
+            console.log(`[Timing] Transcript received at ${now}, delay: ${delay} ms`);
+            transcriptStartTime = null;
+          }
           // Get the agent's response based on the transcript
           const agentResponse = await translateText(transcript);
 
@@ -241,10 +250,13 @@ const createSocketInit = (io: SocketServer) => {
     socket.on("audio:send", async ({ room, audioBuffer }) => {
       const buffer = Buffer.from(audioBuffer);
       audioQueue.push(buffer);
-    
-      sendAudioBatchToDeepgram()
+      // Mark the time when the first buffer of a new utterance is received
+      if (!transcriptStartTime) {
+        transcriptStartTime = Date.now();
+        console.log(`[Timing] First audio buffer received at ${transcriptStartTime}`);
+      }
+      sendAudioBatchToDeepgram();
       if (!isConnecting && !deepgramConnection) {
-        console.log("Initializing Deepgram connection");
         isConnecting = true;
         currentRoom = room;
 
@@ -271,7 +283,7 @@ const createSocketInit = (io: SocketServer) => {
     // Handle audio stop - process immediately
     socket.on("audio:stop", ({ room }) => {
       console.log(
-        `Stopping audio stream for socket ${socket.id} in room ${room}`      );
+        `Stopping audio stream for socket ${socket.id} in room ${room}`);
       sendAudioBatchToDeepgram();
       if (deepgramConnection) {
         // Don't clean up here, let disconnect handle it
