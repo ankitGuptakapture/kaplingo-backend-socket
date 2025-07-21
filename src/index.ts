@@ -67,7 +67,7 @@ export const setupDeepgram = (
   };
 
   deepgram.addListener(LiveTranscriptionEvents.Open, async () => {
-    console.log(`deepgram: connected successfully for socket `);
+    console.log(`deepgram: connected successfully for socket ${socketId}`);
     connectionObj.isConnected = true;
     if (onOpen) {
       onOpen();
