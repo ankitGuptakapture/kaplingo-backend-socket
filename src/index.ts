@@ -51,7 +51,7 @@ export const setupDeepgram = (
   });
   const keepAlive = setInterval(() => {
     if (deepgram.getReadyState() === 1) {
-      console.log(`deepgram: keepalive for  `);
+      // console.log(`deepgram: keepalive for  `);
       deepgram.keepAlive();
     } else {
       console.log(`deepgram: connection not ready for keepalive (state: ${deepgram.getReadyState()})`);

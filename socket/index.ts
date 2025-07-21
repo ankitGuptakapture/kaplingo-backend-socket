@@ -143,7 +143,7 @@ const createSocketInit = (io: SocketServer) => {
     let audioQueue: Buffer[] = [];
     let isConnecting = false;
     let speechTimeout: NodeJS.Timeout | null = null;
-    const SPEECH_TIMEOUT_MS = 300;
+    const SPEECH_TIMEOUT_MS = 100;
     
     let responseQueue: string[] = [];
     let isSpeaking = false;
@@ -265,15 +265,14 @@ const createSocketInit = (io: SocketServer) => {
 
     socket.on("audio:silence", ({ room }) => {
       console.log(`Silence event from ${socket.id} in room ${room}`);
-      socket.to(room).emit("audio:silence", { user: socket.id });
+      // socket.to(room).emit("audio:silence", { user: socket.id });
       sendAudioBatchToDeepgram();
     });
 
     // Handle audio stop - process immediately
     socket.on("audio:stop", ({ room }) => {
       console.log(
-        `Stopping audio stream for socket ${socket.id} in room ${room}`
-      );
+        `Stopping audio stream for socket ${socket.id} in room ${room}`      );
       sendAudioBatchToDeepgram();
       if (deepgramConnection) {
         // Don't clean up here, let disconnect handle it
