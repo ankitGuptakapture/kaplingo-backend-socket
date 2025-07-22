@@ -16,12 +16,20 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 
-app.post("/api/user-left",(req,res)=>{
-  const { user="",room="" }  = req.body
-  // console.log("user left",user,room)
-  clearData(user,room)
-  return res.sendStatus(204)
-})
+app.post("/api/user-left", express.text(), (req, res) => {
+  try {
+    const body = JSON.parse(req.body); // req.body is a plain string here
+    const { user = "", room = "" } = body;
+
+    console.log("user left", user, room);
+    clearData(user, room);
+
+    res.sendStatus(204);
+  } catch (err) {
+    console.error("Failed to parse beacon payload", err);
+    res.sendStatus(400);
+  }
+});
 
 
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
